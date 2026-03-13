@@ -150,11 +150,13 @@ if (ANDROID_BUILD)
     # GOOS=linux c-shared emits STATIC_TLS (IE model) which crashes on
     # Android's bionic dlopen(). GOOS=android uses GD TLS model which
     # is compatible with dlopen — same as Gomobile's official path.
-    # Go 1.21+ required for c-shared PIC on android/arm64.
-    # quic-go v0.23.0 (dep of go-ipfs v0.10.0) has a build guard rejecting
-    # Go 1.18+, which is patched in the module cache before building.
-    set(GOSRC       "https://dl.google.com/go/go1.21.13.linux-amd64.tar.gz")
-    set(GOSRC_HASH  "502fc16d5910562461e6a6631fb6377de2322aad7304bf2bcd23500ba9dab4a7")
+    # Go 1.20 (not 1.21+): quic-go v0.23.0 uses unsafe.Pointer casts
+    # against crypto/tls.ClientSessionState internals. Go 1.21 redesigned
+    # that struct (12 fields → 2), causing "qtls.ClientSessionState
+    # doesn't match" panic. Go 1.20 is the latest compatible version.
+    # quic-go's Go 1.18+ build guard is patched in the module cache.
+    set(GOSRC       "https://dl.google.com/go/go1.20.14.linux-amd64.tar.gz")
+    set(GOSRC_HASH  "ff445e48af27f93f66bd949ae060d97991c83e11289009d311f25426258f9c44")
     set(GOOS        "android")
     # GOARCH already set from ANDROID_ABI mapping above
 endif()
