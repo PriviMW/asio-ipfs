@@ -354,8 +354,13 @@ elseif(WIN64)
              && lib /def:${BINDINGS_DEF} /machine:x64
     )
 elseif(ANDROID_BUILD)
+    # Android: use c-shared (not c-archive) because Android loads JNI
+    # libraries via dlopen(). Go's c-archive uses IE (Initial Exec) TLS
+    # model which only works in executables. c-shared uses GD (General
+    # Dynamic) TLS model which works with dlopen. The Go IPFS code becomes
+    # a separate .so that must ship alongside libwallet-jni.so in the APK.
     set(BINDINGS_HEADER  "${BINDINGS_DIR}/libipfs-bindings.h")
-    set(BINDINGS_LIBRARY "${BINDINGS_DIR}/libipfs-bindings.a")
+    set(BINDINGS_LIBRARY "${BINDINGS_DIR}/libipfs-bindings.so")
     set(BINDINGS_OUTPUT  ${BINDINGS_HEADER} ${BINDINGS_LIBRARY})
 
     add_custom_command(
@@ -384,8 +389,8 @@ elseif(ANDROID_BUILD)
              && ${GOROOT}/bin/go mod download -modcacherw
 
         # Patch quic-go v0.23.0 build guard: it rejects Go 1.18+ but we
-        # need Go 1.21+ for PIC c-archive. Remove the guard file and relax
-        # the go117.go build constraint to compile on Go 1.21.
+        # need Go 1.21+ for PIC. Remove the guard file and relax the
+        # go117.go build constraint to compile on Go 1.21.
         COMMAND ${CMAKE_COMMAND} -E rm -f ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go118.go
         # Delete //go:build line (contains && which is hard to escape in CMake)
         COMMAND sed -i /go:build/d ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go117.go
@@ -403,7 +408,7 @@ elseif(ANDROID_BUILD)
              && export CGO_LDFLAGS="-L${BINDINGS_DIR}/stub"
              && export GO111MODULE=on
              && ${GOROOT}/bin/go build
-                    --buildmode=c-archive
+                    --buildmode=c-shared
                     -tags netgo,osusergo
                     -ldflags "-s -w -extldflags -L${BINDINGS_DIR}/stub"
                     -modcacherw
@@ -438,13 +443,24 @@ if (WINDOWS)
     # install(FILES ${BINDINGS_DLL} DESTINATION BIN)
 endif()
 
-if (LINUX OR DARWIN OR ANDROID_BUILD)
+if (LINUX OR DARWIN)
     add_library(ipfs-bindings STATIC IMPORTED GLOBAL
         DEPENDS ipfs-bindings-build
     )
 
     set_property(TARGET ipfs-bindings PROPERTY
         IMPORTED_LOCATION ${BINDINGS_LIBRARY}
+    )
+endif()
+
+if (ANDROID_BUILD)
+    add_library(ipfs-bindings SHARED IMPORTED GLOBAL
+        DEPENDS ipfs-bindings-build
+    )
+
+    set_target_properties(ipfs-bindings PROPERTIES
+        IMPORTED_LOCATION ${BINDINGS_LIBRARY}
+        IMPORTED_NO_SONAME TRUE
     )
 endif()
 
