@@ -162,18 +162,32 @@ func go_asio_ipfs_publish(cancel_signal C.uint64_t, cid *C.char, seconds C.int64
 
 //export go_asio_ipfs_calc_cid
 func go_asio_ipfs_calc_cid(cancel_signal C.uint64_t, data unsafe.Pointer, size C.size_t, fn unsafe.Pointer, fn_arg unsafe.Pointer) {
+	log.Printf("go_asio_ipfs_calc_cid: entry, size=%d", int(size))
+
 	var n = g_node
 	if n == nil {
+	    log.Println("go_asio_ipfs_calc_cid: g_node is nil")
 	    go func () {
 	        C.execute_data_cb(fn, C.IPFS_NO_NODE, nil, C.size_t(0), fn_arg)
 	    } ()
 	    return
 	}
 
+	log.Println("go_asio_ipfs_calc_cid: copying data")
 	msg := C.GoBytes(data, C.int(size))
+	log.Println("go_asio_ipfs_calc_cid: creating cancel ctx")
 	cancel_ctx := withCancel(n, cancel_signal)
+	log.Println("go_asio_ipfs_calc_cid: spawning goroutine")
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC in go_asio_ipfs_calc_cid goroutine: %v", r)
+				C.execute_data_cb(fn, C.IPFS_CALC_CID_FAILED, nil, C.size_t(0), fn_arg)
+			}
+		}()
+
+		log.Println("go_asio_ipfs_calc_cid: goroutine started, calling Unixfs().Add(HashOnly)")
         p, err := n.api.Unixfs().Add(cancel_ctx, files.NewBytesFile(msg), options.Unixfs.HashOnly(true))
         if err != nil {
             log.Println("Error: failed to calculate cid ", err)
@@ -189,17 +203,22 @@ func go_asio_ipfs_calc_cid(cancel_signal C.uint64_t, data unsafe.Pointer, size C
 		}
 
 		cidstr := cid.String()
+		log.Printf("go_asio_ipfs_calc_cid: success, CID=%s", cidstr)
 		cdata := C.CBytes([]byte(cidstr))
 		defer C.free(cdata)
 
 		C.execute_data_cb(fn, C.IPFS_SUCCESS, cdata, C.size_t(len(cidstr)), fn_arg)
 	}()
+	log.Println("go_asio_ipfs_calc_cid: goroutine spawned, returning to C")
 }
 
 //export go_asio_ipfs_add
 func go_asio_ipfs_add(cancel_signal C.uint64_t, data unsafe.Pointer, size C.size_t, pin bool, fn unsafe.Pointer, fn_arg unsafe.Pointer) {
+	log.Printf("go_asio_ipfs_add: entry, size=%d, pin=%v", int(size), pin)
+
 	var n = g_node
 	if n == nil {
+	    log.Println("go_asio_ipfs_add: g_node is nil")
 	    go func () {
 	        C.execute_data_cb(fn, C.IPFS_NO_NODE, nil, C.size_t(0), fn_arg)
 	    } ()
@@ -210,6 +229,14 @@ func go_asio_ipfs_add(cancel_signal C.uint64_t, data unsafe.Pointer, size C.size
 	cancel_ctx := withCancel(n, cancel_signal)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC in go_asio_ipfs_add goroutine: %v", r)
+				C.execute_data_cb(fn, C.IPFS_ADD_FAILED, nil, C.size_t(0), fn_arg)
+			}
+		}()
+
+		log.Println("go_asio_ipfs_add: goroutine started, calling Unixfs().Add()")
         p, err := n.api.Unixfs().Add(cancel_ctx, files.NewBytesFile(msg), options.Unixfs.Pin(pin))
         if err != nil {
             log.Println("Error: failed to insert content ", err)
@@ -225,11 +252,13 @@ func go_asio_ipfs_add(cancel_signal C.uint64_t, data unsafe.Pointer, size C.size
 		}
 
 		cidstr := cid.String()
+		log.Printf("go_asio_ipfs_add: success, CID=%s", cidstr)
 		cdata := C.CBytes([]byte(cidstr))
 		defer C.free(cdata)
 
 		C.execute_data_cb(fn, C.IPFS_SUCCESS, cdata, C.size_t(len(cidstr)), fn_arg)
 	}()
+	log.Println("go_asio_ipfs_add: goroutine spawned, returning to C")
 }
 
 //export go_asio_ipfs_cat
