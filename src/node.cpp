@@ -161,22 +161,32 @@ struct Handle : public HandleBase {
         impl->handles.push_back(*this);
 
         cb = [this, cb_ = std::move(cb_)] (sys::error_code ec, As... args) {
+            std::cerr << "[IPFS cb] step 1: clearing cancel_fn" << std::endl;
             (*cancel_fn) = []{};
             if (cancel_signal_id) {
-                go_asio_ipfs_cancellation_free(*cancel_signal_id);
+                std::cerr << "[IPFS cb] step 2: freeing cancel signal " << *cancel_signal_id << std::endl;
+                on_native_stack([&]() {
+                    go_asio_ipfs_cancellation_free(*cancel_signal_id);
+                });
+                std::cerr << "[IPFS cb] step 2: done" << std::endl;
             }
             // We need to unlink here, otherwise the callback could invoke the
             // destructor, which would in turn call `cancel` and expect that it
             // gets unlinked. But we just set the `cancel_fn` to do nothing
             // above, so the destructor ends up in an infinite loop.
+            std::cerr << "[IPFS cb] step 3: unlinking" << std::endl;
             unlink();
+            std::cerr << "[IPFS cb] step 4: calling cb_ (resume coroutine)" << std::endl;
             std::apply(cb_, make_tuple(ec, std::move(args)...));
+            std::cerr << "[IPFS cb] step 5: cb_ returned" << std::endl;
         };
 
         *cancel_fn = [this] {
             unlink();
             if (cancel_signal_id) {
-                go_asio_ipfs_cancel(*cancel_signal_id);
+                on_native_stack([&]() {
+                    go_asio_ipfs_cancel(*cancel_signal_id);
+                });
             }
 
             assert(cb);
