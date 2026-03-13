@@ -14,6 +14,8 @@ typedef size_t __SIZE_TYPE__;
 #include <asio_ipfs.h>
 #include <iostream>
 #include <thread>
+#include <exception>
+#include <cstdlib>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -22,12 +24,22 @@ typedef size_t __SIZE_TYPE__;
 #include <signal.h>
 #include <dlfcn.h>
 
-// SIGSEGV handler to log crash details before process dies
-static struct sigaction g_prev_sigsegv;
+// Fatal signal handler to log crash details before process dies
+static struct sigaction g_prev_handlers[32];
 static void crash_handler(int sig, siginfo_t* info, void* ctx) {
-    char buf[256];
-    snprintf(buf, sizeof(buf), "SIGSEGV at addr=%p sig=%d tid=%d",
-             info->si_addr, sig, gettid());
+    const char* sig_name = "UNKNOWN";
+    switch(sig) {
+        case SIGSEGV: sig_name = "SIGSEGV"; break;
+        case SIGABRT: sig_name = "SIGABRT"; break;
+        case SIGBUS:  sig_name = "SIGBUS"; break;
+        case SIGFPE:  sig_name = "SIGFPE"; break;
+        case SIGILL:  sig_name = "SIGILL"; break;
+        case SIGTRAP: sig_name = "SIGTRAP"; break;
+    }
+
+    char buf[512];
+    snprintf(buf, sizeof(buf), "FATAL SIGNAL %s(%d) at addr=%p tid=%d",
+             sig_name, sig, info->si_addr, gettid());
     __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
 
     // Log the PC from ucontext
@@ -48,20 +60,47 @@ static void crash_handler(int sig, siginfo_t* info, void* ctx) {
                      dl.dli_sname ? (unsigned long)((char*)uc->uc_mcontext.pc - (char*)dl.dli_saddr) : 0UL);
             __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
         }
+        if (dladdr((void*)uc->uc_mcontext.regs[30], &dl)) {
+            snprintf(buf, sizeof(buf), "LR in %s (%s+0x%lx)",
+                     dl.dli_fname ? dl.dli_fname : "??",
+                     dl.dli_sname ? dl.dli_sname : "??",
+                     dl.dli_sname ? (unsigned long)((char*)uc->uc_mcontext.regs[30] - (char*)dl.dli_saddr) : 0UL);
+            __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
+        }
     }
 
     // Restore previous handler and re-raise
-    sigaction(SIGSEGV, &g_prev_sigsegv, nullptr);
-    raise(SIGSEGV);
+    sigaction(sig, &g_prev_handlers[sig], nullptr);
+    raise(sig);
 }
 
 static void install_crash_handler() {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = crash_handler;
-    sa.sa_flags = SA_SIGINFO;
-    sigaction(SIGSEGV, &sa, &g_prev_sigsegv);
-    __android_log_write(ANDROID_LOG_INFO, "IPFS_CRASH", "SIGSEGV handler installed");
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    // Handle ALL fatal signals
+    int signals[] = {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGTRAP};
+    for (int sig : signals) {
+        sigaction(sig, &sa, &g_prev_handlers[sig]);
+    }
+
+    // Also catch uncaught C++ exceptions
+    std::set_terminate([]() {
+        __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", "std::terminate called!");
+        try { std::rethrow_exception(std::current_exception()); }
+        catch (const std::exception& e) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "Uncaught exception: %s", e.what());
+            __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
+        }
+        catch (...) {
+            __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", "Uncaught non-std exception");
+        }
+        abort();
+    });
+
+    __android_log_write(ANDROID_LOG_INFO, "IPFS_CRASH", "All signal handlers installed");
 }
 
 // Redirect native stderr (fd 2) to Android logcat.
@@ -177,7 +216,18 @@ struct Handle : public HandleBase {
             std::cerr << "[IPFS cb] step 3: unlinking" << std::endl;
             unlink();
             std::cerr << "[IPFS cb] step 4: calling cb_ (resume coroutine)" << std::endl;
-            std::apply(cb_, make_tuple(ec, std::move(args)...));
+            std::cerr.flush();
+            try {
+                std::apply(cb_, make_tuple(ec, std::move(args)...));
+            } catch (const std::exception& e) {
+                std::cerr << "[IPFS cb] step 4 EXCEPTION: " << e.what() << std::endl;
+                std::cerr.flush();
+                throw;
+            } catch (...) {
+                std::cerr << "[IPFS cb] step 4 UNKNOWN EXCEPTION" << std::endl;
+                std::cerr.flush();
+                throw;
+            }
             std::cerr << "[IPFS cb] step 5: cb_ returned" << std::endl;
         };
 
