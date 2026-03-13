@@ -97,6 +97,15 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
         set(CGO_CC "${NDK_TOOLCHAIN_BIN}/x86_64-linux-android${ANDROID_NATIVE_API_LEVEL}-clang")
         set(NDK_LIBDIR "${NDK_SYSROOT}/usr/lib/x86_64-linux-android/${ANDROID_NATIVE_API_LEVEL}")
     endif()
+
+    # Create NDK clang wrapper that forces lld linker.
+    # Go's c-shared external linker falls back to /usr/bin/ld.gold on CI,
+    # which can't handle arm64 ELF. The wrapper is created at configure
+    # time to avoid CMake Makefile escaping issues with -fuse-ld=lld.
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings)
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings/ndk-cc.sh
+        "#!/bin/sh\nexec ${CGO_CC} -fuse-ld=lld \"$@\"\n")
+    set(CGO_CC_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings/ndk-cc.sh")
 else()
     message(FATAL_ERROR "Unsupported host platform ${CMAKE_SYSTEM_NAME}")
 endif()
@@ -377,9 +386,11 @@ elseif(ANDROID_BUILD)
             && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/go.sum ${GOPATH_IPFS_DIR}
 
         # Create stub libpthread.a — Android bionic includes pthreads
-        # in libc, but GOOS=linux makes Go link -lpthread separately
+        # in libc, but GOOS=linux makes Go link -lpthread separately.
+        # Also chmod the NDK clang wrapper (created at configure time).
         COMMAND ${CMAKE_COMMAND} -E make_directory ${BINDINGS_DIR}/stub
              && ${CMAKE_AR} rcs ${BINDINGS_DIR}/stub/libpthread.a
+             && chmod +x ${CGO_CC_WRAPPER}
 
         # Download Go modules first (with -modcacherw so cache is writable)
         COMMAND cd ${GOPATH_IPFS_DIR}
@@ -404,9 +415,8 @@ elseif(ANDROID_BUILD)
              && export GOARCH=${GOARCH}
              && export GOARM=${GOARM}
              && export CGO_ENABLED=1
-             && export CC=${CGO_CC}
-             && export CGO_LDFLAGS_ALLOW="-fuse-ld=.*"
-             && export CGO_LDFLAGS="-fuse-ld=lld -L${BINDINGS_DIR}/stub"
+             && export CC=${CGO_CC_WRAPPER}
+             && export CGO_LDFLAGS="-L${BINDINGS_DIR}/stub"
              && export GO111MODULE=on
              && ${GOROOT}/bin/go build
                     --buildmode=c-shared
