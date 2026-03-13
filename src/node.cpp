@@ -15,6 +15,52 @@ typedef size_t __SIZE_TYPE__;
 #include <iostream>
 #include <thread>
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <unistd.h>
+#include <pthread.h>
+
+// Redirect native stderr (fd 2) to Android logcat.
+// Go's c-shared runtime writes fatal errors to fd 2 directly,
+// which on Android goes to /dev/null. This pipe+thread captures
+// those messages and routes them through __android_log_write.
+static void* stderr_reader_thread(void* arg) {
+    int fd = (int)(intptr_t)arg;
+    char buf[1024];
+    ssize_t n;
+    while ((n = read(fd, buf, sizeof(buf) - 1)) > 0) {
+        buf[n] = '\0';
+        // Strip trailing newline for logcat
+        if (n > 0 && buf[n-1] == '\n') buf[n-1] = '\0';
+        __android_log_write(ANDROID_LOG_ERROR, "GoStderr", buf);
+    }
+    return nullptr;
+}
+
+static void redirect_stderr_to_logcat() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+
+    int pipefd[2];
+    if (pipe(pipefd) == -1) return;
+
+    // Redirect stderr (fd 2) to the write end of the pipe
+    dup2(pipefd[1], STDERR_FILENO);
+    close(pipefd[1]);
+
+    // Spawn detached thread to read from pipe and write to logcat
+    pthread_t tid;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&tid, &attr, stderr_reader_thread, (void*)(intptr_t)pipefd[0]);
+    pthread_attr_destroy(&attr);
+
+    __android_log_write(ANDROID_LOG_INFO, "GoStderr", "stderr → logcat redirect active");
+}
+#endif
+
 using namespace asio_ipfs;
 using namespace std;
 namespace asio = boost::asio;
@@ -250,6 +296,10 @@ namespace
 
 void node::redirect_logs(LogCB logcb)
 {
+#ifdef __ANDROID__
+    redirect_stderr_to_logcat();
+#endif
+
     log_cb = std::move(logcb);
     if (log_cb)
     {
