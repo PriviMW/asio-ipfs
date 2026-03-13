@@ -106,6 +106,15 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings/ndk-cc.sh
         "#!/bin/sh\nexec ${CGO_CC} -fuse-ld=lld -Wno-unused-command-line-argument \"$@\"\n")
     set(CGO_CC_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings/ndk-cc.sh")
+
+    # Patch script: Android SELinux blocks netlink_route_socket bind for
+    # untrusted apps. Go's net.Interfaces() calls NetlinkRIB → bind() →
+    # permission denied → IPFS/libp2p core.NewNode() fails. This script
+    # patches Go stdlib to return empty interface list instead of error.
+    # Created at configure time (like ndk-cc.sh) to avoid CMake quoting issues.
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings/patch-netlink.sh
+        "#!/bin/sh\nsed -i 's/os.NewSyscallError(\"netlinkrib\", err)/nil/g' \"$1\"\n")
+    set(NETLINK_PATCH "${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings/patch-netlink.sh")
 else()
     message(FATAL_ERROR "Unsupported host platform ${CMAKE_SYSTEM_NAME}")
 endif()
@@ -412,15 +421,10 @@ elseif(ANDROID_BUILD)
         # Fix old-style constraint: "// +build go1.17,!go1.18" -> "// +build go1.17"
         COMMAND sed -i s/,!go1.18// ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go117.go
 
-        # Patch Go stdlib: Android SELinux blocks netlink_route_socket bind
-        # for untrusted apps (permission denied). Go's net.Interfaces() uses
-        # NetlinkRIB which fails, crashing IPFS/libp2p core.NewNode().
-        # Fix: return empty results instead of error so libp2p starts without
-        # local interface info. The node can still dial out to peers — only
-        # incoming listener setup (0.0.0.0 wildcard) is affected.
-        COMMAND sed -i
-            "s|return nil, os.NewSyscallError..netlinkrib., err.|return nil, nil|g"
-            ${GOROOT}/src/net/interface_linux.go
+        # Patch Go stdlib: Android SELinux blocks netlink_route_socket bind.
+        # See patch-netlink.sh created at configure time above.
+        COMMAND chmod +x ${NETLINK_PATCH}
+             && ${NETLINK_PATCH} ${GOROOT}/src/net/interface_linux.go
 
         COMMAND cd ${GOPATH_IPFS_DIR}
              && export GOROOT=${GOROOT}
