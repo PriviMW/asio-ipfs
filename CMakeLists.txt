@@ -404,8 +404,9 @@ elseif(ANDROID_BUILD)
              && export GOARCH=${GOARCH}
              && export GOARM=${GOARM}
              && export CGO_ENABLED=1
-             && export CC="${CGO_CC} -fuse-ld=lld"
-             && export CGO_LDFLAGS="-L${BINDINGS_DIR}/stub"
+             && export CC=${CGO_CC}
+             && export CGO_LDFLAGS_ALLOW="-fuse-ld=.*"
+             && export CGO_LDFLAGS="-fuse-ld=lld -L${BINDINGS_DIR}/stub"
              && export GO111MODULE=on
              && ${GOROOT}/bin/go build
                     --buildmode=c-shared
