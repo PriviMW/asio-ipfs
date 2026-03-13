@@ -19,6 +19,50 @@ typedef size_t __SIZE_TYPE__;
 #include <android/log.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
+#include <dlfcn.h>
+
+// SIGSEGV handler to log crash details before process dies
+static struct sigaction g_prev_sigsegv;
+static void crash_handler(int sig, siginfo_t* info, void* ctx) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "SIGSEGV at addr=%p sig=%d tid=%d",
+             info->si_addr, sig, gettid());
+    __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
+
+    // Log the PC from ucontext
+    ucontext_t* uc = (ucontext_t*)ctx;
+    if (uc) {
+        snprintf(buf, sizeof(buf), "PC=%p LR=%p SP=%p",
+                 (void*)uc->uc_mcontext.pc,
+                 (void*)uc->uc_mcontext.regs[30],
+                 (void*)uc->uc_mcontext.sp);
+        __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
+
+        // Try to identify which library the PC is in
+        Dl_info dl;
+        if (dladdr((void*)uc->uc_mcontext.pc, &dl)) {
+            snprintf(buf, sizeof(buf), "PC in %s (%s+0x%lx)",
+                     dl.dli_fname ? dl.dli_fname : "??",
+                     dl.dli_sname ? dl.dli_sname : "??",
+                     dl.dli_sname ? (unsigned long)((char*)uc->uc_mcontext.pc - (char*)dl.dli_saddr) : 0UL);
+            __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
+        }
+    }
+
+    // Restore previous handler and re-raise
+    sigaction(SIGSEGV, &g_prev_sigsegv, nullptr);
+    raise(SIGSEGV);
+}
+
+static void install_crash_handler() {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = crash_handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sa, &g_prev_sigsegv);
+    __android_log_write(ANDROID_LOG_INFO, "IPFS_CRASH", "SIGSEGV handler installed");
+}
 
 // Redirect native stderr (fd 2) to Android logcat.
 // Go's c-shared runtime writes fatal errors to fd 2 directly,
@@ -58,6 +102,8 @@ static void redirect_stderr_to_logcat() {
     pthread_attr_destroy(&attr);
 
     __android_log_write(ANDROID_LOG_INFO, "GoStderr", "stderr → logcat redirect active");
+
+    install_crash_handler();
 }
 #endif
 
@@ -161,6 +207,12 @@ struct Handle : public HandleBase {
     static void call(int32_t err, void* arg, As... args) {
         std::cerr << "[IPFS Handle::call] err=" << err << " arg=" << arg << std::endl;
         auto self = reinterpret_cast<Handle*>(arg);
+        std::cerr << "[IPFS Handle::call] self=" << (void*)self
+                  << " &ios=" << (void*)&(self->ios)
+                  << " job_count=" << self->job_count
+                  << " cb=" << (self->cb ? "set" : "null")
+                  << std::endl;
+        std::cerr << "[IPFS Handle::call] ios.stopped()=" << self->ios.stopped() << std::endl;
         std::cerr << "[IPFS Handle::call] posting to ios" << std::endl;
         self->ios.post([
             self,
@@ -175,6 +227,7 @@ struct Handle : public HandleBase {
                 std::cerr << "[IPFS Handle::call] cb returned" << std::endl;
             }
         });
+        std::cerr << "[IPFS Handle::call] post succeeded" << std::endl;
     }
 
     void cancel() override {
