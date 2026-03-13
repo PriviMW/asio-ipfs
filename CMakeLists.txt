@@ -140,8 +140,10 @@ if (ANDROID_BUILD)
     # Use GOOS=linux (not android) because c-archive buildmode is not
     # supported on android/* targets. Android IS Linux at kernel level
     # and the NDK clang CC handles bionic libc specifics.
-    set(GOSRC       "https://dl.google.com/go/go1.16.10.linux-amd64.tar.gz")
-    set(GOSRC_HASH  "414cd18ce1d193769b9e97d2401ad718755ab47816e13b2a1cde203d263b55cf")
+    # Go 1.17+ required — Go 1.16 has getnameinfo type mismatch with
+    # bionic on arm64 (unsigned int vs unsigned long for socklen_t)
+    set(GOSRC       "https://dl.google.com/go/go1.17.13.linux-amd64.tar.gz")
+    set(GOSRC_HASH  "4cdd2bc664724dc7db94ad51b503512c5ae7220951cac568120f64f8e94399fc")
     set(GOOS        "linux")
     # GOARCH already set from ANDROID_ABI mapping above
 endif()
