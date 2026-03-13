@@ -11,10 +11,23 @@ include(ExternalProject)
 # Boost
 #
 set(BOOST_VERSION 1.62)
-find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS
-    coroutine
-    system
-)
+if(NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
+    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS
+        coroutine
+        system
+    )
+else()
+    # Android: Boost targets already created by parent CMakeLists.txt
+    # Create Boost::boost header-only target if missing
+    if(NOT TARGET Boost::boost)
+        add_library(Boost::boost INTERFACE IMPORTED)
+        get_target_property(_boost_inc Boost::system INTERFACE_INCLUDE_DIRECTORIES)
+        if(_boost_inc)
+            set_target_properties(Boost::boost PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${_boost_inc}")
+        endif()
+    endif()
+endif()
 
 #
 # Detect platform & arch. We do not support cross-compilation 
@@ -50,6 +63,34 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
         set(X64 TRUE)
     else()
          message(FATAL_ERROR "Unsupported host architecture ${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
+    set(ANDROID_BUILD TRUE)
+
+    # Map ANDROID_ABI to Go architecture
+    if ("${ANDROID_ABI}" STREQUAL "arm64-v8a")
+        set(GOARCH "arm64")
+    elseif("${ANDROID_ABI}" STREQUAL "armeabi-v7a")
+        set(GOARCH "arm")
+        set(GOARM "7")
+    elseif("${ANDROID_ABI}" STREQUAL "x86")
+        set(GOARCH "386")
+    elseif("${ANDROID_ABI}" STREQUAL "x86_64")
+        set(GOARCH "amd64")
+    else()
+        message(FATAL_ERROR "Unsupported Android ABI: ${ANDROID_ABI}")
+    endif()
+
+    # Construct NDK clang path for CGO cross-compilation
+    set(NDK_TOOLCHAIN_BIN "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin")
+    if ("${ANDROID_ABI}" STREQUAL "arm64-v8a")
+        set(CGO_CC "${NDK_TOOLCHAIN_BIN}/aarch64-linux-android${ANDROID_NATIVE_API_LEVEL}-clang")
+    elseif("${ANDROID_ABI}" STREQUAL "armeabi-v7a")
+        set(CGO_CC "${NDK_TOOLCHAIN_BIN}/armv7a-linux-androideabi${ANDROID_NATIVE_API_LEVEL}-clang")
+    elseif("${ANDROID_ABI}" STREQUAL "x86")
+        set(CGO_CC "${NDK_TOOLCHAIN_BIN}/i686-linux-android${ANDROID_NATIVE_API_LEVEL}-clang")
+    elseif("${ANDROID_ABI}" STREQUAL "x86_64")
+        set(CGO_CC "${NDK_TOOLCHAIN_BIN}/x86_64-linux-android${ANDROID_NATIVE_API_LEVEL}-clang")
     endif()
 else()
     message(FATAL_ERROR "Unsupported host platform ${CMAKE_SYSTEM_NAME}")
@@ -87,6 +128,14 @@ if (WIN64)
     set(GOSRC_HASH  "787c9afbcd7446874f79bffd20dc4219c3aeff6731bd03f09058bdd546c7eb87")
     set(GOOS        "windows")
     set(GOARCH      "amd64")
+endif()
+
+if (ANDROID_BUILD)
+    # Host Go toolchain (linux-amd64) cross-compiles to android
+    set(GOSRC       "https://dl.google.com/go/go1.16.10.linux-amd64.tar.gz")
+    set(GOSRC_HASH  "414cd18ce1d193769b9e97d2401ad718755ab47816e13b2a1cde203d263b55cf")
+    set(GOOS        "android")
+    # GOARCH already set from ANDROID_ABI mapping above
 endif()
 
 externalproject_add(golang
@@ -291,7 +340,41 @@ elseif(WIN64)
                     ./src/ipfs_bindings
         COMMAND cd ${BINDINGS_DIR}
              && ${TDMROOT}/x86_64-w64-mingw32/bin/gendef.exe ipfs-bindings.dll
-             && lib /def:${BINDINGS_DEF} /machine:x64 
+             && lib /def:${BINDINGS_DEF} /machine:x64
+    )
+elseif(ANDROID_BUILD)
+    set(BINDINGS_HEADER  "${BINDINGS_DIR}/libipfs-bindings.h")
+    set(BINDINGS_LIBRARY "${BINDINGS_DIR}/libipfs-bindings.a")
+    set(BINDINGS_OUTPUT  ${BINDINGS_HEADER} ${BINDINGS_LIBRARY})
+
+    add_custom_command(
+        OUTPUT  ${BINDINGS_OUTPUT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/include/ipfs_error_codes.h
+                ${BINDINGS_SRC}
+                golang
+
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${BINDINGS_DIR}
+            && ${CMAKE_COMMAND} -E make_directory ${GOPATH_IPFS_DIR}
+            && ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include ${GOPATH_IPFS_DIR}/include
+            && ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/src ${GOPATH_IPFS_DIR}/src
+            && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/go.mod ${GOPATH_IPFS_DIR}
+            && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/go.sum ${GOPATH_IPFS_DIR}
+
+        COMMAND cd ${GOPATH_IPFS_DIR}
+             && export GOROOT=${GOROOT}
+             && export GOPATH=${GOPATH}
+             && export GOOS=${GOOS}
+             && export GOARCH=${GOARCH}
+             && export GOARM=${GOARM}
+             && export CGO_ENABLED=1
+             && export CC=${CGO_CC}
+             && export GO111MODULE=on
+             && ${GOROOT}/bin/go build
+                    --buildmode=c-archive
+                    -ldflags "-s -w"
+                    -modcacherw
+                    -o ${BINDINGS_LIBRARY}
+                    ./src/ipfs_bindings
     )
 endif()
 
@@ -321,7 +404,7 @@ if (WINDOWS)
     # install(FILES ${BINDINGS_DLL} DESTINATION BIN)
 endif()
 
-if (LINUX OR DARWIN)
+if (LINUX OR DARWIN OR ANDROID_BUILD)
     add_library(ipfs-bindings STATIC IMPORTED GLOBAL
         DEPENDS ipfs-bindings-build
     )
