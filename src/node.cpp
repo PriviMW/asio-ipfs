@@ -159,15 +159,20 @@ struct Handle : public HandleBase {
      * cancelled, self->cb is empty.
      */
     static void call(int32_t err, void* arg, As... args) {
+        std::cerr << "[IPFS Handle::call] err=" << err << " arg=" << arg << std::endl;
         auto self = reinterpret_cast<Handle*>(arg);
+        std::cerr << "[IPFS Handle::call] posting to ios" << std::endl;
         self->ios.post([
             self,
             full_args = make_tuple(make_error_code(error::ipfs_error{err}), std::move(args)...)
         ] {
+            std::cerr << "[IPFS Handle::call] ios callback executing" << std::endl;
             auto on_exit = defer([&] { if (!--self->job_count) delete(self); });
 
             if (self->cb) {
+                std::cerr << "[IPFS Handle::call] calling cb" << std::endl;
                 std::apply(self->cb, tuple<sys::error_code, As...>(std::move(full_args)));
+                std::cerr << "[IPFS Handle::call] cb returned" << std::endl;
             }
         });
     }
@@ -223,15 +228,20 @@ void call_ipfs(
     F ipfs_function,
     As... args
 ) {
+    std::cerr << "[IPFS node.cpp] call_ipfs: node=" << (void*)node << std::endl;
     on_native_stack([&]() {
+        std::cerr << "[IPFS node.cpp] on_native_stack: calling cancellation_allocate" << std::endl;
         uint64_t cancel_signal_id = go_asio_ipfs_cancellation_allocate();
+        std::cerr << "[IPFS node.cpp] on_native_stack: cancel_signal=" << cancel_signal_id << ", calling ipfs_function" << std::endl;
         ipfs_function(
             cancel_signal_id,
             args...,
             (void*) &callback_function<CbAs...>::callback,
             (void*) (new Handle<CbAs...>{ node, cancel_signal_id, cancel, std::move(callback) })
         );
+        std::cerr << "[IPFS node.cpp] on_native_stack: ipfs_function returned" << std::endl;
     });
+    std::cerr << "[IPFS node.cpp] call_ipfs: on_native_stack returned" << std::endl;
 }
 
 template<class... CbAs, class F, class... As>
@@ -432,6 +442,7 @@ void node::calc_cid_(const uint8_t* data, size_t size
         , Cancel* cancel
         , function<void(sys::error_code, string)>&& cb)
 {
+    std::cerr << "[IPFS node.cpp] calc_cid_: _impl=" << (void*)_impl.get() << " data=" << (void*)data << " size=" << size << std::endl;
     call_ipfs(_impl.get(), cancel, std::move(cb), go_asio_ipfs_calc_cid, (void*) data, size);
 }
 
