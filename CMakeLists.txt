@@ -131,10 +131,13 @@ if (WIN64)
 endif()
 
 if (ANDROID_BUILD)
-    # Host Go toolchain (linux-amd64) cross-compiles to android
+    # Host Go toolchain (linux-amd64) cross-compiles for Android
+    # Use GOOS=linux (not android) because c-archive buildmode is not
+    # supported on android/* targets. Android IS Linux at kernel level
+    # and the NDK clang CC handles bionic libc specifics.
     set(GOSRC       "https://dl.google.com/go/go1.16.10.linux-amd64.tar.gz")
     set(GOSRC_HASH  "414cd18ce1d193769b9e97d2401ad718755ab47816e13b2a1cde203d263b55cf")
-    set(GOOS        "android")
+    set(GOOS        "linux")
     # GOARCH already set from ANDROID_ABI mapping above
 endif()
 
