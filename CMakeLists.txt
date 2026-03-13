@@ -412,6 +412,16 @@ elseif(ANDROID_BUILD)
         # Fix old-style constraint: "// +build go1.17,!go1.18" -> "// +build go1.17"
         COMMAND sed -i s/,!go1.18// ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go117.go
 
+        # Patch Go stdlib: Android SELinux blocks netlink_route_socket bind
+        # for untrusted apps (permission denied). Go's net.Interfaces() uses
+        # NetlinkRIB which fails, crashing IPFS/libp2p core.NewNode().
+        # Fix: return empty results instead of error so libp2p starts without
+        # local interface info. The node can still dial out to peers — only
+        # incoming listener setup (0.0.0.0 wildcard) is affected.
+        COMMAND sed -i
+            "s|return nil, os.NewSyscallError..netlinkrib., err.|return nil, nil|g"
+            ${GOROOT}/src/net/interface_linux.go
+
         COMMAND cd ${GOPATH_IPFS_DIR}
              && export GOROOT=${GOROOT}
              && export GOPATH=${GOPATH}
