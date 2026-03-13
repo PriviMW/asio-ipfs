@@ -405,12 +405,12 @@ elseif(ANDROID_BUILD)
              && export GOARM=${GOARM}
              && export CGO_ENABLED=1
              && export CC=${CGO_CC}
-             && export CGO_LDFLAGS="-L${BINDINGS_DIR}/stub"
+             && export CGO_LDFLAGS="-fuse-ld=lld -L${BINDINGS_DIR}/stub"
              && export GO111MODULE=on
              && ${GOROOT}/bin/go build
                     --buildmode=c-shared
                     -tags netgo,osusergo
-                    -ldflags "-s -w -extldflags '-fuse-ld=lld -L${BINDINGS_DIR}/stub'"
+                    -ldflags "-s -w"
                     -modcacherw
                     -o ${BINDINGS_LIBRARY}
                     ./src/ipfs_bindings
