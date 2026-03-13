@@ -368,6 +368,11 @@ elseif(ANDROID_BUILD)
             && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/go.mod ${GOPATH_IPFS_DIR}
             && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/go.sum ${GOPATH_IPFS_DIR}
 
+        # Create stub libpthread.a — Android bionic includes pthreads
+        # in libc, but GOOS=linux makes Go link -lpthread separately
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${BINDINGS_DIR}/stub
+             && ${CMAKE_AR} rcs ${BINDINGS_DIR}/stub/libpthread.a
+
         COMMAND cd ${GOPATH_IPFS_DIR}
              && export GOROOT=${GOROOT}
              && export GOPATH=${GOPATH}
@@ -376,11 +381,11 @@ elseif(ANDROID_BUILD)
              && export GOARM=${GOARM}
              && export CGO_ENABLED=1
              && export CC=${CGO_CC}
-             && export CGO_LDFLAGS="-L${NDK_LIBDIR}"
+             && export CGO_LDFLAGS="-L${BINDINGS_DIR}/stub"
              && export GO111MODULE=on
              && ${GOROOT}/bin/go build
                     --buildmode=c-archive
-                    -ldflags "-s -w -extldflags -L${NDK_LIBDIR}"
+                    -ldflags "-s -w -extldflags -L${BINDINGS_DIR}/stub"
                     -modcacherw
                     -o ${BINDINGS_LIBRARY}
                     ./src/ipfs_bindings
