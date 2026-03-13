@@ -140,10 +140,11 @@ if (ANDROID_BUILD)
     # Use GOOS=linux (not android) because c-archive buildmode is not
     # supported on android/* targets. Android IS Linux at kernel level
     # and the NDK clang CC handles bionic libc specifics.
-    # Go 1.21+ required for c-archive PIC on linux/arm64, plus
-    # bionic getnameinfo compat (fixed in Go 1.17+)
-    set(GOSRC       "https://dl.google.com/go/go1.21.13.linux-amd64.tar.gz")
-    set(GOSRC_HASH  "502fc16d5910562461e6a6631fb6377de2322aad7304bf2bcd23500ba9dab4a7")
+    # Go 1.17: last version compatible with go-ipfs v0.10.0's quic-go
+    # dependency (quic-go v0.23.0 rejects Go 1.18+). PIC for arm64
+    # c-archive achieved via -gcflags=all=-shared instead of Go 1.21+.
+    set(GOSRC       "https://dl.google.com/go/go1.17.13.linux-amd64.tar.gz")
+    set(GOSRC_HASH  "4cdd2bc664724dc7db94ad51b503512c5ae7220951cac568120f64f8e94399fc")
     set(GOOS        "linux")
     # GOARCH already set from ANDROID_ABI mapping above
 endif()
@@ -388,6 +389,7 @@ elseif(ANDROID_BUILD)
              && ${GOROOT}/bin/go build
                     --buildmode=c-archive
                     -tags netgo,osusergo
+                    -gcflags=all=-shared
                     -ldflags "-s -w -extldflags -L${BINDINGS_DIR}/stub"
                     -modcacherw
                     -o ${BINDINGS_LIBRARY}
