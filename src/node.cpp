@@ -21,7 +21,7 @@ namespace sys  = boost::system;
 namespace intr = boost::intrusive;
 
 template<class F> struct Defer { F f; ~Defer() { f(); } };
-template<class F> Defer<F> defer(F&& f) { return Defer<F>{forward<F>(f)}; }
+template<class F> Defer<F> defer(F&& f) { return Defer<F>{std::forward<F>(f)}; }
 
 struct HandleBase : public intr::list_base_hook
                             <intr::link_mode<intr::auto_unlink>> {
@@ -41,7 +41,7 @@ struct asio_ipfs::node_impl {
 
     explicit node_impl(asio::io_service& ios, asio_ipfs::node::StateCB scb)
         : ios(ios)
-        , scb(move(scb))
+        , scb(std::move(scb))
     {
     }
 };
@@ -241,7 +241,7 @@ void node::redirect_logs(LogCB logcb)
 node::node(asio::io_service& ios, StateCB scb, config cfg)
 {
     string cfg_s = config_to_json(cfg);
-    _impl = make_unique<node_impl>(ios, move(scb));
+    _impl = make_unique<node_impl>(ios, std::move(scb));
 
     auto ec = go_asio_ipfs_start_blocking(
                 (char*) cfg_s.c_str(),
@@ -296,8 +296,8 @@ void node::build_( asio::io_service& ios
      * This cannot be a unique_ptr, because std::function wants to be
      * CopyConstructible for some reason.
      */
-    auto impl = new node_impl(ios, move(scb));
-    std::function<void(sys::error_code)> cb_ = [cb = move(cb), impl] (sys::error_code ec) {
+    auto impl = new node_impl(ios, std::move(scb));
+    std::function<void(sys::error_code)> cb_ = [cb = std::move(cb), impl] (sys::error_code ec) {
         if (ec) {
             delete impl;
             cb(ec, nullptr);

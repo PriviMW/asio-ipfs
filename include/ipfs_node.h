@@ -136,7 +136,7 @@ namespace asio_ipfs {
         using BackendP = std::unique_ptr<node>;
         Handler<Token, BackendP> handler(std::forward<Token>(token));
         Result<Token, BackendP> result(handler);
-        build_(ios, move(scb), cfg, nullptr, std::move(handler));
+        build_(ios, std::move(scb), cfg, nullptr, std::move(handler));
         return result.get();
     }
 
@@ -151,7 +151,7 @@ namespace asio_ipfs {
         using BackendP = std::unique_ptr<node>;
         Handler<Token, BackendP> handler(std::forward<Token>(token));
         Result<Token, BackendP> result(handler);
-        build_(ios, move(scb), cfg, &cancel, std::move(handler));
+        build_(ios, std::move(scb), cfg, &cancel, std::move(handler));
         return result.get();
     }
 
