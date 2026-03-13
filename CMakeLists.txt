@@ -387,6 +387,7 @@ elseif(ANDROID_BUILD)
              && export GO111MODULE=on
              && ${GOROOT}/bin/go build
                     --buildmode=c-archive
+                    -tags netgo,osusergo
                     -ldflags "-s -w -extldflags -L${BINDINGS_DIR}/stub"
                     -modcacherw
                     -o ${BINDINGS_LIBRARY}
