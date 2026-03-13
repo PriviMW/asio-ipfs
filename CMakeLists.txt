@@ -421,7 +421,7 @@ elseif(ANDROID_BUILD)
              && ${GOROOT}/bin/go build
                     --buildmode=c-shared
                     -tags netgo,osusergo
-                    -ldflags "-s -w"
+                    -ldflags "-s -w -extldflags -fuse-ld=lld"
                     -modcacherw
                     -o ${BINDINGS_LIBRARY}
                     ./src/ipfs_bindings
