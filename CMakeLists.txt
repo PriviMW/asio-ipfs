@@ -145,16 +145,17 @@ if (WIN64)
 endif()
 
 if (ANDROID_BUILD)
-    # Host Go toolchain (linux-amd64) cross-compiles for Android
-    # Use GOOS=linux (not android) because c-archive buildmode is not
-    # supported on android/* targets. Android IS Linux at kernel level
-    # and the NDK clang CC handles bionic libc specifics.
-    # Go 1.21+ required for c-archive PIC on linux/arm64 and linux/amd64.
+    # Host Go toolchain (linux-amd64) cross-compiles for Android.
+    # GOOS=android (not linux) is REQUIRED for c-shared buildmode:
+    # GOOS=linux c-shared emits STATIC_TLS (IE model) which crashes on
+    # Android's bionic dlopen(). GOOS=android uses GD TLS model which
+    # is compatible with dlopen — same as Gomobile's official path.
+    # Go 1.21+ required for c-shared PIC on android/arm64.
     # quic-go v0.23.0 (dep of go-ipfs v0.10.0) has a build guard rejecting
     # Go 1.18+, which is patched in the module cache before building.
     set(GOSRC       "https://dl.google.com/go/go1.21.13.linux-amd64.tar.gz")
     set(GOSRC_HASH  "502fc16d5910562461e6a6631fb6377de2322aad7304bf2bcd23500ba9dab4a7")
-    set(GOOS        "linux")
+    set(GOOS        "android")
     # GOARCH already set from ANDROID_ABI mapping above
 endif()
 
@@ -385,8 +386,9 @@ elseif(ANDROID_BUILD)
             && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/go.mod ${GOPATH_IPFS_DIR}
             && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/go.sum ${GOPATH_IPFS_DIR}
 
-        # Create stub libpthread.a — Android bionic includes pthreads
-        # in libc, but GOOS=linux makes Go link -lpthread separately.
+        # Create stub libpthread.a — safety net in case any transitive
+        # dependency links -lpthread. With GOOS=android Go knows bionic
+        # has pthreads in libc, but the stub is harmless insurance.
         # Also chmod the NDK clang wrapper (created at configure time).
         COMMAND ${CMAKE_COMMAND} -E make_directory ${BINDINGS_DIR}/stub
              && ${CMAKE_AR} rcs ${BINDINGS_DIR}/stub/libpthread.a
