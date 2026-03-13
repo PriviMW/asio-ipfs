@@ -81,16 +81,21 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
         message(FATAL_ERROR "Unsupported Android ABI: ${ANDROID_ABI}")
     endif()
 
-    # Construct NDK clang path for CGO cross-compilation
+    # Construct NDK clang path and sysroot lib path for CGO cross-compilation
     set(NDK_TOOLCHAIN_BIN "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin")
+    set(NDK_SYSROOT "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot")
     if ("${ANDROID_ABI}" STREQUAL "arm64-v8a")
         set(CGO_CC "${NDK_TOOLCHAIN_BIN}/aarch64-linux-android${ANDROID_NATIVE_API_LEVEL}-clang")
+        set(NDK_LIBDIR "${NDK_SYSROOT}/usr/lib/aarch64-linux-android/${ANDROID_NATIVE_API_LEVEL}")
     elseif("${ANDROID_ABI}" STREQUAL "armeabi-v7a")
         set(CGO_CC "${NDK_TOOLCHAIN_BIN}/armv7a-linux-androideabi${ANDROID_NATIVE_API_LEVEL}-clang")
+        set(NDK_LIBDIR "${NDK_SYSROOT}/usr/lib/arm-linux-androideabi/${ANDROID_NATIVE_API_LEVEL}")
     elseif("${ANDROID_ABI}" STREQUAL "x86")
         set(CGO_CC "${NDK_TOOLCHAIN_BIN}/i686-linux-android${ANDROID_NATIVE_API_LEVEL}-clang")
+        set(NDK_LIBDIR "${NDK_SYSROOT}/usr/lib/i686-linux-android/${ANDROID_NATIVE_API_LEVEL}")
     elseif("${ANDROID_ABI}" STREQUAL "x86_64")
         set(CGO_CC "${NDK_TOOLCHAIN_BIN}/x86_64-linux-android${ANDROID_NATIVE_API_LEVEL}-clang")
+        set(NDK_LIBDIR "${NDK_SYSROOT}/usr/lib/x86_64-linux-android/${ANDROID_NATIVE_API_LEVEL}")
     endif()
 else()
     message(FATAL_ERROR "Unsupported host platform ${CMAKE_SYSTEM_NAME}")
@@ -371,10 +376,11 @@ elseif(ANDROID_BUILD)
              && export GOARM=${GOARM}
              && export CGO_ENABLED=1
              && export CC=${CGO_CC}
+             && export CGO_LDFLAGS="-L${NDK_LIBDIR}"
              && export GO111MODULE=on
              && ${GOROOT}/bin/go build
                     --buildmode=c-archive
-                    -ldflags "-s -w"
+                    -ldflags "-s -w -extldflags -L${NDK_LIBDIR}"
                     -modcacherw
                     -o ${BINDINGS_LIBRARY}
                     ./src/ipfs_bindings
