@@ -410,7 +410,7 @@ elseif(ANDROID_BUILD)
              && ${GOROOT}/bin/go build
                     --buildmode=c-shared
                     -tags netgo,osusergo
-                    -ldflags "-s -w -extldflags -L${BINDINGS_DIR}/stub"
+                    -ldflags "-s -w -extldflags '-fuse-ld=lld -L${BINDINGS_DIR}/stub'"
                     -modcacherw
                     -o ${BINDINGS_LIBRARY}
                     ./src/ipfs_bindings
