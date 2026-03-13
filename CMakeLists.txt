@@ -104,7 +104,7 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
     # time to avoid CMake Makefile escaping issues with -fuse-ld=lld.
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings)
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings/ndk-cc.sh
-        "#!/bin/sh\nexec ${CGO_CC} -fuse-ld=lld \"$@\"\n")
+        "#!/bin/sh\nexec ${CGO_CC} -fuse-ld=lld -Wno-unused-command-line-argument \"$@\"\n")
     set(CGO_CC_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/ipfs_bindings/ndk-cc.sh")
 else()
     message(FATAL_ERROR "Unsupported host platform ${CMAKE_SYSTEM_NAME}")
