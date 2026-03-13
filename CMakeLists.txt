@@ -140,11 +140,11 @@ if (ANDROID_BUILD)
     # Use GOOS=linux (not android) because c-archive buildmode is not
     # supported on android/* targets. Android IS Linux at kernel level
     # and the NDK clang CC handles bionic libc specifics.
-    # Go 1.17: last version compatible with go-ipfs v0.10.0's quic-go
-    # dependency (quic-go v0.23.0 rejects Go 1.18+). PIC for arm64
-    # c-archive achieved via -gcflags=all=-shared instead of Go 1.21+.
-    set(GOSRC       "https://dl.google.com/go/go1.17.13.linux-amd64.tar.gz")
-    set(GOSRC_HASH  "4cdd2bc664724dc7db94ad51b503512c5ae7220951cac568120f64f8e94399fc")
+    # Go 1.21+ required for c-archive PIC on linux/arm64 and linux/amd64.
+    # quic-go v0.23.0 (dep of go-ipfs v0.10.0) has a build guard rejecting
+    # Go 1.18+, which is patched in the module cache before building.
+    set(GOSRC       "https://dl.google.com/go/go1.21.13.linux-amd64.tar.gz")
+    set(GOSRC_HASH  "502fc16d5910562461e6a6631fb6377de2322aad7304bf2bcd23500ba9dab4a7")
     set(GOOS        "linux")
     # GOARCH already set from ANDROID_ABI mapping above
 endif()
@@ -376,6 +376,19 @@ elseif(ANDROID_BUILD)
         COMMAND ${CMAKE_COMMAND} -E make_directory ${BINDINGS_DIR}/stub
              && ${CMAKE_AR} rcs ${BINDINGS_DIR}/stub/libpthread.a
 
+        # Download Go modules first (with -modcacherw so cache is writable)
+        COMMAND cd ${GOPATH_IPFS_DIR}
+             && export GOROOT=${GOROOT}
+             && export GOPATH=${GOPATH}
+             && export GO111MODULE=on
+             && ${GOROOT}/bin/go mod download -modcacherw
+
+        # Patch quic-go v0.23.0 build guard: it rejects Go 1.18+ but we
+        # need Go 1.21+ for PIC c-archive. Remove the guard file and relax
+        # the go117.go build constraint to compile on Go 1.21.
+        COMMAND rm -f ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go118.go
+             && sed -i "s/go1.17 && !go1.18/go1.17/" ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go117.go
+
         COMMAND cd ${GOPATH_IPFS_DIR}
              && export GOROOT=${GOROOT}
              && export GOPATH=${GOPATH}
@@ -389,7 +402,6 @@ elseif(ANDROID_BUILD)
              && ${GOROOT}/bin/go build
                     --buildmode=c-archive
                     -tags netgo,osusergo
-                    -gcflags=all=-shared
                     -ldflags "-s -w -extldflags -L${BINDINGS_DIR}/stub"
                     -modcacherw
                     -o ${BINDINGS_LIBRARY}
