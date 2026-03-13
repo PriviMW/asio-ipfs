@@ -13,6 +13,7 @@ typedef size_t __SIZE_TYPE__;
 #include <nlohmann/json.hpp>
 #include <asio_ipfs.h>
 #include <iostream>
+#include <thread>
 
 using namespace asio_ipfs;
 using namespace std;
@@ -150,6 +151,24 @@ template<> struct callback_function<std::vector<uint8_t>> {
     }
 };
 
+// On Android, Go's c-shared runtime crashes (SIGSEGV) when cgo entry points
+// run on Boost ASIO coroutine stacks (~64KB mmap). Go inspects SP to find
+// goroutine metadata; the alien stack corrupts heap/GC state during
+// C.GoBytes/C.GoString allocations. Fix: bounce cgo calls through a native
+// OS thread. Go functions return fast (spawn goroutine + return), so the
+// join() cost is negligible.
+#ifdef __ANDROID__
+template<class F>
+void on_native_stack(F&& f) {
+    std::thread(std::forward<F>(f)).join();
+}
+#else
+template<class F>
+void on_native_stack(F&& f) {
+    std::forward<F>(f)();
+}
+#endif
+
 template<class... CbAs, class F, class... As>
 void call_ipfs(
     node_impl* node,
@@ -158,13 +177,15 @@ void call_ipfs(
     F ipfs_function,
     As... args
 ) {
-    uint64_t cancel_signal_id = go_asio_ipfs_cancellation_allocate();
-    ipfs_function(
-        cancel_signal_id,
-        args...,
-        (void*) &callback_function<CbAs...>::callback,
-        (void*) (new Handle<CbAs...>{ node, cancel_signal_id, cancel, std::move(callback) })
-    );
+    on_native_stack([&]() {
+        uint64_t cancel_signal_id = go_asio_ipfs_cancellation_allocate();
+        ipfs_function(
+            cancel_signal_id,
+            args...,
+            (void*) &callback_function<CbAs...>::callback,
+            (void*) (new Handle<CbAs...>{ node, cancel_signal_id, cancel, std::move(callback) })
+        );
+    });
 }
 
 template<class... CbAs, class F, class... As>
@@ -175,11 +196,13 @@ void call_ipfs_nocancel(
     F ipfs_function,
     As... args
 ) {
-    ipfs_function(
-        args...,
-        (void*) &callback_function<CbAs...>::callback,
-        (void*) (new Handle<CbAs...>{ node, boost::none, cancel, std::move(callback) })
-    );
+    on_native_stack([&]() {
+        ipfs_function(
+            args...,
+            (void*) &callback_function<CbAs...>::callback,
+            (void*) (new Handle<CbAs...>{ node, boost::none, cancel, std::move(callback) })
+        );
+    });
 }
 
 static string config_to_json(config cfg)
