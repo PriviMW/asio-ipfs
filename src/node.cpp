@@ -12,96 +12,12 @@ typedef size_t __SIZE_TYPE__;
 #include <boost/optional.hpp>
 #include <nlohmann/json.hpp>
 #include <asio_ipfs.h>
-#include <iostream>
 #include <thread>
-#include <exception>
-#include <cstdlib>
 
 #ifdef __ANDROID__
 #include <android/log.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <signal.h>
-#include <dlfcn.h>
-
-// Fatal signal handler to log crash details before process dies
-static struct sigaction g_prev_handlers[32];
-static void crash_handler(int sig, siginfo_t* info, void* ctx) {
-    const char* sig_name = "UNKNOWN";
-    switch(sig) {
-        case SIGSEGV: sig_name = "SIGSEGV"; break;
-        case SIGABRT: sig_name = "SIGABRT"; break;
-        case SIGBUS:  sig_name = "SIGBUS"; break;
-        case SIGFPE:  sig_name = "SIGFPE"; break;
-        case SIGILL:  sig_name = "SIGILL"; break;
-        case SIGTRAP: sig_name = "SIGTRAP"; break;
-    }
-
-    char buf[512];
-    snprintf(buf, sizeof(buf), "FATAL SIGNAL %s(%d) at addr=%p tid=%d",
-             sig_name, sig, info->si_addr, gettid());
-    __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
-
-    // Log the PC from ucontext
-    ucontext_t* uc = (ucontext_t*)ctx;
-    if (uc) {
-        snprintf(buf, sizeof(buf), "PC=%p LR=%p SP=%p",
-                 (void*)uc->uc_mcontext.pc,
-                 (void*)uc->uc_mcontext.regs[30],
-                 (void*)uc->uc_mcontext.sp);
-        __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
-
-        // Try to identify which library the PC is in
-        Dl_info dl;
-        if (dladdr((void*)uc->uc_mcontext.pc, &dl)) {
-            snprintf(buf, sizeof(buf), "PC in %s (%s+0x%lx)",
-                     dl.dli_fname ? dl.dli_fname : "??",
-                     dl.dli_sname ? dl.dli_sname : "??",
-                     dl.dli_sname ? (unsigned long)((char*)uc->uc_mcontext.pc - (char*)dl.dli_saddr) : 0UL);
-            __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
-        }
-        if (dladdr((void*)uc->uc_mcontext.regs[30], &dl)) {
-            snprintf(buf, sizeof(buf), "LR in %s (%s+0x%lx)",
-                     dl.dli_fname ? dl.dli_fname : "??",
-                     dl.dli_sname ? dl.dli_sname : "??",
-                     dl.dli_sname ? (unsigned long)((char*)uc->uc_mcontext.regs[30] - (char*)dl.dli_saddr) : 0UL);
-            __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
-        }
-    }
-
-    // Restore previous handler and re-raise
-    sigaction(sig, &g_prev_handlers[sig], nullptr);
-    raise(sig);
-}
-
-static void install_crash_handler() {
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = crash_handler;
-    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
-    // Handle ALL fatal signals
-    int signals[] = {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGTRAP};
-    for (int sig : signals) {
-        sigaction(sig, &sa, &g_prev_handlers[sig]);
-    }
-
-    // Also catch uncaught C++ exceptions
-    std::set_terminate([]() {
-        __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", "std::terminate called!");
-        try { std::rethrow_exception(std::current_exception()); }
-        catch (const std::exception& e) {
-            char buf[256];
-            snprintf(buf, sizeof(buf), "Uncaught exception: %s", e.what());
-            __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", buf);
-        }
-        catch (...) {
-            __android_log_write(ANDROID_LOG_FATAL, "IPFS_CRASH", "Uncaught non-std exception");
-        }
-        abort();
-    });
-
-    __android_log_write(ANDROID_LOG_INFO, "IPFS_CRASH", "All signal handlers installed");
-}
 
 // Redirect native stderr (fd 2) to Android logcat.
 // Go's c-shared runtime writes fatal errors to fd 2 directly,
@@ -141,8 +57,6 @@ static void redirect_stderr_to_logcat() {
     pthread_attr_destroy(&attr);
 
     __android_log_write(ANDROID_LOG_INFO, "GoStderr", "stderr → logcat redirect active");
-
-    install_crash_handler();
 }
 #endif
 
@@ -200,35 +114,18 @@ struct Handle : public HandleBase {
         impl->handles.push_back(*this);
 
         cb = [this, cb_ = std::move(cb_)] (sys::error_code ec, As... args) {
-            std::cerr << "[IPFS cb] step 1: clearing cancel_fn" << std::endl;
             (*cancel_fn) = []{};
             if (cancel_signal_id) {
-                std::cerr << "[IPFS cb] step 2: freeing cancel signal " << *cancel_signal_id << std::endl;
                 on_native_stack([&]() {
                     go_asio_ipfs_cancellation_free(*cancel_signal_id);
                 });
-                std::cerr << "[IPFS cb] step 2: done" << std::endl;
             }
             // We need to unlink here, otherwise the callback could invoke the
             // destructor, which would in turn call `cancel` and expect that it
             // gets unlinked. But we just set the `cancel_fn` to do nothing
             // above, so the destructor ends up in an infinite loop.
-            std::cerr << "[IPFS cb] step 3: unlinking" << std::endl;
             unlink();
-            std::cerr << "[IPFS cb] step 4: calling cb_ (resume coroutine)" << std::endl;
-            std::cerr.flush();
-            try {
-                std::apply(cb_, make_tuple(ec, std::move(args)...));
-            } catch (const std::exception& e) {
-                std::cerr << "[IPFS cb] step 4 EXCEPTION: " << e.what() << std::endl;
-                std::cerr.flush();
-                throw;
-            } catch (...) {
-                std::cerr << "[IPFS cb] step 4 UNKNOWN EXCEPTION" << std::endl;
-                std::cerr.flush();
-                throw;
-            }
-            std::cerr << "[IPFS cb] step 5: cb_ returned" << std::endl;
+            std::apply(cb_, make_tuple(ec, std::move(args)...));
         };
 
         *cancel_fn = [this] {
@@ -265,29 +162,17 @@ struct Handle : public HandleBase {
      * cancelled, self->cb is empty.
      */
     static void call(int32_t err, void* arg, As... args) {
-        std::cerr << "[IPFS Handle::call] err=" << err << " arg=" << arg << std::endl;
         auto self = reinterpret_cast<Handle*>(arg);
-        std::cerr << "[IPFS Handle::call] self=" << (void*)self
-                  << " &ios=" << (void*)&(self->ios)
-                  << " job_count=" << self->job_count
-                  << " cb=" << (self->cb ? "set" : "null")
-                  << std::endl;
-        std::cerr << "[IPFS Handle::call] ios.stopped()=" << self->ios.stopped() << std::endl;
-        std::cerr << "[IPFS Handle::call] posting to ios" << std::endl;
         self->ios.post([
             self,
             full_args = make_tuple(make_error_code(error::ipfs_error{err}), std::move(args)...)
         ] {
-            std::cerr << "[IPFS Handle::call] ios callback executing" << std::endl;
             auto on_exit = defer([&] { if (!--self->job_count) delete(self); });
 
             if (self->cb) {
-                std::cerr << "[IPFS Handle::call] calling cb" << std::endl;
                 std::apply(self->cb, tuple<sys::error_code, As...>(std::move(full_args)));
-                std::cerr << "[IPFS Handle::call] cb returned" << std::endl;
             }
         });
-        std::cerr << "[IPFS Handle::call] post succeeded" << std::endl;
     }
 
     void cancel() override {
@@ -341,20 +226,15 @@ void call_ipfs(
     F ipfs_function,
     As... args
 ) {
-    std::cerr << "[IPFS node.cpp] call_ipfs: node=" << (void*)node << std::endl;
     on_native_stack([&]() {
-        std::cerr << "[IPFS node.cpp] on_native_stack: calling cancellation_allocate" << std::endl;
         uint64_t cancel_signal_id = go_asio_ipfs_cancellation_allocate();
-        std::cerr << "[IPFS node.cpp] on_native_stack: cancel_signal=" << cancel_signal_id << ", calling ipfs_function" << std::endl;
         ipfs_function(
             cancel_signal_id,
             args...,
             (void*) &callback_function<CbAs...>::callback,
             (void*) (new Handle<CbAs...>{ node, cancel_signal_id, cancel, std::move(callback) })
         );
-        std::cerr << "[IPFS node.cpp] on_native_stack: ipfs_function returned" << std::endl;
     });
-    std::cerr << "[IPFS node.cpp] call_ipfs: on_native_stack returned" << std::endl;
 }
 
 template<class... CbAs, class F, class... As>
@@ -555,7 +435,6 @@ void node::calc_cid_(const uint8_t* data, size_t size
         , Cancel* cancel
         , function<void(sys::error_code, string)>&& cb)
 {
-    std::cerr << "[IPFS node.cpp] calc_cid_: _impl=" << (void*)_impl.get() << " data=" << (void*)data << " size=" << size << std::endl;
     call_ipfs(_impl.get(), cancel, std::move(cb), go_asio_ipfs_calc_cid, (void*) data, size);
 }
 
