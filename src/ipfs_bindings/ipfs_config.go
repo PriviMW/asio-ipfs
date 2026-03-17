@@ -116,9 +116,9 @@ func updateConfig(conf *config.Config, c *AsioConfig) error {
     conf.Swarm.EnableHolePunching = config.True
     // Keep relay transport enabled
     conf.Swarm.Transports.Network.Relay = config.True
-    // Deprecated fields — keep for backward compat
-    conf.Swarm.EnableAutoRelay = c.AutoRelay
-    conf.Swarm.EnableRelayHop = c.RelayHop
+    // DO NOT set deprecated fields — v0.11 treats them as fatal errors
+    // conf.Swarm.EnableAutoRelay = ... (removed in v0.11)
+    // conf.Swarm.EnableRelayHop = ... (removed in v0.11)
     conf.Routing.Type = c.RoutingType
     conf.Datastore.StorageMax = c.StorageMax
 
