@@ -462,14 +462,6 @@ void node::unpin_( const string& cid
     call_ipfs(_impl.get(), cancel, std::move(cb), go_asio_ipfs_unpin, (char*) cid.data());
 }
 
-void node::provide_( const string& cid
-                   , Cancel* cancel
-                   , std::function<void(sys::error_code)> cb)
-{
-    assert(cid.size() == CID_SIZE);
-    call_ipfs(_impl.get(), cancel, std::move(cb), go_asio_ipfs_provide, (char*) cid.data());
-}
-
 void node::gc_(Cancel* cancel, std::function<void(boost::system::error_code)> cb)
 {
     call_ipfs(_impl.get(), cancel, std::move(cb), go_asio_ipfs_gc);

@@ -119,7 +119,6 @@ namespace asio_ipfs {
         void resolve_(const std::string& ipns_id, Cancel*, std::function<void(boost::system::error_code, std::string)>);
         void pin_(const std::string& cid, Cancel*, std::function<void(boost::system::error_code)>);
         void unpin_(const std::string& cid, Cancel*, std::function<void(boost::system::error_code)>);
-        void provide_(const std::string& cid, Cancel*, std::function<void(boost::system::error_code)>);
         void gc_(Cancel*, std::function<void(boost::system::error_code)>);
 
     private:

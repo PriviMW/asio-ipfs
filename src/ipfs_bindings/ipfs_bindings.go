@@ -315,40 +315,6 @@ func go_asio_ipfs_cat(cancel_signal C.uint64_t, c_cid *C.char, fn unsafe.Pointer
 	}()
 }
 
-//export go_asio_ipfs_provide
-func go_asio_ipfs_provide(cancel_signal C.uint64_t, c_cid *C.char, fn unsafe.Pointer, fn_arg unsafe.Pointer) {
-	var n = g_node
-	if n == nil {
-		go func() {
-			C.execute_void_cb(fn, C.IPFS_NO_NODE, fn_arg)
-		}()
-		return
-	}
-
-	cid := C.GoString(c_cid)
-	cancel_ctx := withCancel(n, cancel_signal)
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("PANIC in go_asio_ipfs_provide: %v", r)
-				C.execute_void_cb(fn, C.IPFS_ADD_FAILED, fn_arg)
-			}
-		}()
-
-		log.Printf("go_asio_ipfs_provide: providing %s to DHT", cid)
-		path := corepath.New(cid)
-		err := n.api.Dht().Provide(cancel_ctx, path)
-		if err != nil {
-			log.Printf("go_asio_ipfs_provide: FAILED for %s: %v", cid, err)
-			C.execute_void_cb(fn, C.IPFS_ADD_FAILED, fn_arg)
-			return
-		}
-		log.Printf("go_asio_ipfs_provide: SUCCESS for %s", cid)
-		C.execute_void_cb(fn, C.IPFS_SUCCESS, fn_arg)
-	}()
-}
-
 //export go_asio_ipfs_pin
 func go_asio_ipfs_pin(cancel_signal C.uint64_t, c_cid *C.char, fn unsafe.Pointer, fn_arg unsafe.Pointer) {
 	var n = g_node

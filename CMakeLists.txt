@@ -412,13 +412,14 @@ elseif(ANDROID_BUILD)
              && export GO111MODULE=on
              && ${GOROOT}/bin/go mod download -modcacherw
 
-        # Patch quic-go build guard: it rejects newer Go versions but we
-        # need Go 1.21+ for PIC. Remove the guard file and relax build constraints.
-        # Supports both v0.23.0 (go-ipfs v0.10) and v0.24.0 (go-ipfs v0.11)
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.24.0/internal/qtls/go118.go
+        # Patch quic-go v0.23.0 build guard: it rejects Go 1.18+ but we
+        # need Go 1.21+ for PIC. Remove the guard file and relax the
+        # go117.go build constraint to compile on Go 1.21.
         COMMAND ${CMAKE_COMMAND} -E rm -f ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go118.go
-        COMMAND sed -i /go:build/d ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.24.0/internal/qtls/go117.go
-        COMMAND sed -i s/,!go1.18// ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.24.0/internal/qtls/go117.go
+        # Delete //go:build line (contains && which is hard to escape in CMake)
+        COMMAND sed -i /go:build/d ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go117.go
+        # Fix old-style constraint: "// +build go1.17,!go1.18" -> "// +build go1.17"
+        COMMAND sed -i s/,!go1.18// ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go117.go
 
         # Patch Go stdlib: Android SELinux blocks netlink_route_socket bind.
         # See patch-netlink.sh created at configure time above.
