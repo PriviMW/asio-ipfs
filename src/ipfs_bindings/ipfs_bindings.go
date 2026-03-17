@@ -251,19 +251,6 @@ func go_asio_ipfs_add(cancel_signal C.uint64_t, data unsafe.Pointer, size C.size
 			return;
 		}
 
-		// Explicitly provide to DHT so other nodes can find this content immediately.
-		// Without this, content is only discoverable after the reprovider runs (12h default).
-		go func() {
-			provCtx, provCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer provCancel()
-			err := n.api.Dht().Provide(provCtx, corepath.IpfsPath(cid))
-			if err != nil {
-				log.Printf("go_asio_ipfs_add: DHT provide failed (non-fatal): %v", err)
-			} else {
-				log.Printf("go_asio_ipfs_add: DHT provide success for %s", cid.String())
-			}
-		}()
-
 		cidstr := cid.String()
 		log.Printf("go_asio_ipfs_add: success, CID=%s", cidstr)
 		cdata := C.CBytes([]byte(cidstr))
@@ -325,6 +312,40 @@ func go_asio_ipfs_cat(cancel_signal C.uint64_t, c_cid *C.char, fn unsafe.Pointer
 		defer C.free(cdata)
 
 		C.execute_data_cb(fn, C.IPFS_SUCCESS, cdata, C.size_t(len(bytes)), fn_arg)
+	}()
+}
+
+//export go_asio_ipfs_provide
+func go_asio_ipfs_provide(cancel_signal C.uint64_t, c_cid *C.char, fn unsafe.Pointer, fn_arg unsafe.Pointer) {
+	var n = g_node
+	if n == nil {
+		go func() {
+			C.execute_void_cb(fn, C.IPFS_NO_NODE, fn_arg)
+		}()
+		return
+	}
+
+	cid := C.GoString(c_cid)
+	cancel_ctx := withCancel(n, cancel_signal)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC in go_asio_ipfs_provide: %v", r)
+				C.execute_void_cb(fn, C.IPFS_ADD_FAILED, fn_arg)
+			}
+		}()
+
+		log.Printf("go_asio_ipfs_provide: providing %s to DHT", cid)
+		path := corepath.New(cid)
+		err := n.api.Dht().Provide(cancel_ctx, path)
+		if err != nil {
+			log.Printf("go_asio_ipfs_provide: FAILED for %s: %v", cid, err)
+			C.execute_void_cb(fn, C.IPFS_ADD_FAILED, fn_arg)
+			return
+		}
+		log.Printf("go_asio_ipfs_provide: SUCCESS for %s", cid)
+		C.execute_void_cb(fn, C.IPFS_SUCCESS, fn_arg)
 	}()
 }
 
