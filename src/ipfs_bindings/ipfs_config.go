@@ -99,9 +99,26 @@ func updateConfig(conf *config.Config, c *AsioConfig) error {
     conf.Swarm.ConnMgr.HighWater = c.HighWater
     conf.Swarm.ConnMgr.GracePeriod = c.GracePeriod
 
+    // Relay v2 config (go-ipfs v0.11+)
+    // RelayClient: use relay nodes when behind NAT
+    if c.AutoRelay {
+        conf.Swarm.RelayClient.Enabled = config.True
+    } else {
+        conf.Swarm.RelayClient.Enabled = config.False
+    }
+    // RelayService: act as a limited relay for other peers
+    if c.RelayHop {
+        conf.Swarm.RelayService.Enabled = config.True
+    } else {
+        conf.Swarm.RelayService.Enabled = config.False
+    }
+    // Enable DCUtR hole punching for NAT traversal
+    conf.Swarm.EnableHolePunching = config.True
+    // Keep relay transport enabled
+    conf.Swarm.Transports.Network.Relay = config.True
+    // Deprecated fields — keep for backward compat
     conf.Swarm.EnableAutoRelay = c.AutoRelay
     conf.Swarm.EnableRelayHop = c.RelayHop
-    conf.Swarm.Transports.Network.Relay = config.True
     conf.Routing.Type = c.RoutingType
     conf.Datastore.StorageMax = c.StorageMax
 
