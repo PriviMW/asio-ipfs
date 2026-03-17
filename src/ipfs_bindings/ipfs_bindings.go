@@ -251,6 +251,19 @@ func go_asio_ipfs_add(cancel_signal C.uint64_t, data unsafe.Pointer, size C.size
 			return;
 		}
 
+		// Explicitly provide to DHT so other nodes can find this content immediately.
+		// Without this, content is only discoverable after the reprovider runs (12h default).
+		go func() {
+			provCtx, provCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer provCancel()
+			err := n.api.Dht().Provide(provCtx, corepath.IpfsPath(cid))
+			if err != nil {
+				log.Printf("go_asio_ipfs_add: DHT provide failed (non-fatal): %v", err)
+			} else {
+				log.Printf("go_asio_ipfs_add: DHT provide success for %s", cid.String())
+			}
+		}()
+
 		cidstr := cid.String()
 		log.Printf("go_asio_ipfs_add: success, CID=%s", cidstr)
 		cdata := C.CBytes([]byte(cidstr))
