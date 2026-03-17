@@ -415,7 +415,10 @@ elseif(ANDROID_BUILD)
         # Patch quic-go build guard: it rejects newer Go versions but we
         # need Go 1.21+ for PIC. Remove the guard file and relax build constraints.
         # Supports both v0.23.0 (go-ipfs v0.10) and v0.24.0 (go-ipfs v0.11)
-        COMMAND bash -c "rm -f ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.24.0/internal/qtls/go118.go ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go118.go 2>/dev/null; for f in ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.2*/internal/qtls/go117.go; do [ -f $$f ] && sed -i /go:build/d $$f && sed -i s/,!go1.18// $$f; done; true"
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.24.0/internal/qtls/go118.go
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.23.0/internal/qtls/go118.go
+        COMMAND sed -i /go:build/d ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.24.0/internal/qtls/go117.go
+        COMMAND sed -i s/,!go1.18// ${GOPATH}/pkg/mod/github.com/lucas-clemente/quic-go@v0.24.0/internal/qtls/go117.go
 
         # Patch Go stdlib: Android SELinux blocks netlink_route_socket bind.
         # See patch-netlink.sh created at configure time above.
