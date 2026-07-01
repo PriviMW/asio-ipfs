@@ -10,6 +10,8 @@ typedef size_t __SIZE_TYPE__;
 #include <tuple>
 #include <boost/intrusive/list.hpp>
 #include <boost/optional.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/executor_work_guard.hpp>
 #include <nlohmann/json.hpp>
 #include <asio_ipfs.h>
 #include <thread>
@@ -99,7 +101,7 @@ struct Handle : public HandleBase {
     function<void()>* cancel_fn;
     function<void()> destructor_cancel_fn;
     boost::optional<uint64_t> cancel_signal_id;
-    asio::io_context::work work;
+    asio::executor_work_guard<asio::io_context::executor_type> work;
     unsigned job_count = 1;
 
     Handle( node_impl* impl
@@ -109,7 +111,7 @@ struct Handle : public HandleBase {
         : ios(impl->ios)
         , cancel_fn(cancel_fn_ ? cancel_fn_ : &destructor_cancel_fn)
         , cancel_signal_id(cancel_signal_id_)
-        , work(asio::io_context::work(ios))
+        , work(asio::make_work_guard(ios))
     {
         impl->handles.push_back(*this);
 
@@ -148,7 +150,7 @@ struct Handle : public HandleBase {
                 std::apply(callback, std::move(args));
             };
 
-            this->ios.post(postcb);
+            asio::post(this->ios, postcb);
             (*cancel_fn) = []{};
         };
 
@@ -163,7 +165,7 @@ struct Handle : public HandleBase {
      */
     static void call(int32_t err, void* arg, As... args) {
         auto self = reinterpret_cast<Handle*>(arg);
-        self->ios.post([
+        asio::post(self->ios, [
             self,
             full_args = make_tuple(make_error_code(error::ipfs_error{err}), std::move(args)...)
         ] {
