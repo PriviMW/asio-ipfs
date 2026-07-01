@@ -3,7 +3,7 @@
 #include <functional>
 #include <memory>
 #include <boost/asio/steady_timer.hpp>
-#include <boost/asio/io_service.hpp>
+#include <boost/asio/io_context.hpp>
 #include <boost/utility/string_view.hpp>
 #include "ipfs_config.h"
 
@@ -33,7 +33,7 @@ namespace asio_ipfs {
         // This constructor may do repository initialization disk IO and as such
         // may block for a second or more. If that is undesired, use the static
         // async `node::build` function instead.
-        node(boost::asio::io_service&, StateCB, config);
+        node(boost::asio::io_context&, StateCB, config);
 
         node(node&&) noexcept;
         node& operator=(node&&) noexcept;
@@ -41,17 +41,17 @@ namespace asio_ipfs {
         node(const node&) = delete;
         node& operator=(const node&) = delete;
 
-        boost::asio::io_service& get_io_service();
+        boost::asio::io_context& get_io_context();
         void free();
         ~node();
 
         template<class Token>
         static typename Result<Token, std::unique_ptr<node>>::return_type
-        build(boost::asio::io_service&, StateCB, config, Token&&);
+        build(boost::asio::io_context&, StateCB, config, Token&&);
 
         template<class Token>
         static typename Result<Token, std::unique_ptr<node>>::return_type
-        build(boost::asio::io_service&, StateCB, config, Cancel&, Token&&);
+        build(boost::asio::io_context&, StateCB, config, Cancel&, Token&&);
 
         // Returns this node's IPFS ID
         [[nodiscard]] std::string id() const;
@@ -110,7 +110,7 @@ namespace asio_ipfs {
         void gc(Cancel&, Token&&);
 
     private:
-        static void build_(boost::asio::io_service&, StateCB, config, Cancel*,
+        static void build_(boost::asio::io_context&, StateCB, config, Cancel*,
                            std::function<void( const boost::system::error_code&, std::unique_ptr<node>)>);
         void add_(const uint8_t* data, size_t size, bool pin, Cancel*, std::function<void(boost::system::error_code, std::string)>&&);
         void calc_cid_(const uint8_t* data, size_t size, Cancel*, std::function<void(boost::system::error_code, std::string)>&&);
@@ -128,7 +128,7 @@ namespace asio_ipfs {
 
     template<class Token>
     inline typename node::Result<Token, std::unique_ptr<node>>::return_type
-    node::build( boost::asio::io_service& ios
+    node::build( boost::asio::io_context& ios
                , StateCB scb
                , config cfg
                , Token&& token)
@@ -142,7 +142,7 @@ namespace asio_ipfs {
 
     template<class Token>
     inline typename node::Result<Token, std::unique_ptr<node>>::return_type
-    node::build( boost::asio::io_service& ios
+    node::build( boost::asio::io_context& ios
                , StateCB scb
                , config cfg
                , Cancel& cancel

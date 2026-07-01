@@ -76,7 +76,7 @@ struct HandleBase : public intr::list_base_hook
 };
 
 struct asio_ipfs::node_impl {
-    asio::io_service& ios;
+    asio::io_context& ios;
     intr::list<HandleBase, intr::constant_time_size<false>> handles;
 
     asio_ipfs::node::StateCB scb;
@@ -85,7 +85,7 @@ struct asio_ipfs::node_impl {
         reinterpret_cast<node_impl*>(self)->scb(serr, peercnt);
     }
 
-    explicit node_impl(asio::io_service& ios, asio_ipfs::node::StateCB scb)
+    explicit node_impl(asio::io_context& ios, asio_ipfs::node::StateCB scb)
         : ios(ios)
         , scb(std::move(scb))
     {
@@ -94,12 +94,12 @@ struct asio_ipfs::node_impl {
 
 template<class... As>
 struct Handle : public HandleBase {
-    asio::io_service& ios;
+    asio::io_context& ios;
     function<void(sys::error_code, As&&...)> cb;
     function<void()>* cancel_fn;
     function<void()> destructor_cancel_fn;
     boost::optional<uint64_t> cancel_signal_id;
-    asio::io_service::work work;
+    asio::io_context::work work;
     unsigned job_count = 1;
 
     Handle( node_impl* impl
@@ -109,7 +109,7 @@ struct Handle : public HandleBase {
         : ios(impl->ios)
         , cancel_fn(cancel_fn_ ? cancel_fn_ : &destructor_cancel_fn)
         , cancel_signal_id(cancel_signal_id_)
-        , work(asio::io_service::work(ios))
+        , work(asio::io_context::work(ios))
     {
         impl->handles.push_back(*this);
 
@@ -314,7 +314,7 @@ void node::redirect_logs(LogCB logcb)
     }
 }
 
-node::node(asio::io_service& ios, StateCB scb, config cfg)
+node::node(asio::io_context& ios, StateCB scb, config cfg)
 {
     string cfg_s = config_to_json(cfg);
     _impl = make_unique<node_impl>(ios, std::move(scb));
@@ -362,7 +362,7 @@ node::~node()
     }
 }
 
-void node::build_( asio::io_service& ios
+void node::build_( asio::io_context& ios
                  , StateCB scb
                  , config cfg
                  , Cancel* cancel
@@ -467,7 +467,7 @@ void node::gc_(Cancel* cancel, std::function<void(boost::system::error_code)> cb
     call_ipfs(_impl.get(), cancel, std::move(cb), go_asio_ipfs_gc);
 }
 
-boost::asio::io_service& node::get_io_service()
+boost::asio::io_context& node::get_io_context()
 {
     return _impl->ios;
 }
