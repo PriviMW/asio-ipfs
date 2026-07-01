@@ -4,6 +4,7 @@
 #include <memory>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/async_initiate.hpp>
 #include <boost/utility/string_view.hpp>
 #include "ipfs_config.h"
 
@@ -133,11 +134,14 @@ namespace asio_ipfs {
                , config cfg
                , Token&& token)
     {
-        using BackendP = std::unique_ptr<node>;
-        Handler<Token, BackendP> handler(std::forward<Token>(token));
-        Result<Token, BackendP> result(handler);
-        build_(ios, std::move(scb), cfg, nullptr, std::move(handler));
-        return result.get();
+        // Boost 1.70+ reworked async_result: the yield_context specialization
+        // no longer has completion_handler_type, so the old Handler/Result/get()
+        // pattern breaks for coroutine tokens. Use async_initiate instead, which
+        // works uniformly for yield_context and std::function completion tokens.
+        return boost::asio::async_initiate<Token, void(boost::system::error_code, std::unique_ptr<node>)>(
+            [&ios, scb = std::move(scb), cfg](auto& handler) {
+                build_(ios, std::move(scb), cfg, nullptr, std::move(handler));
+            }, token);
     }
 
     template<class Token>
@@ -148,11 +152,10 @@ namespace asio_ipfs {
                , Cancel& cancel
                , Token&& token)
     {
-        using BackendP = std::unique_ptr<node>;
-        Handler<Token, BackendP> handler(std::forward<Token>(token));
-        Result<Token, BackendP> result(handler);
-        build_(ios, std::move(scb), cfg, &cancel, std::move(handler));
-        return result.get();
+        return boost::asio::async_initiate<Token, void(boost::system::error_code, std::unique_ptr<node>)>(
+            [&ios, scb = std::move(scb), cfg, &cancel](auto& handler) {
+                build_(ios, std::move(scb), cfg, &cancel, std::move(handler));
+            }, token);
     }
 
     template<class Token>
