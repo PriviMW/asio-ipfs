@@ -139,7 +139,7 @@ namespace asio_ipfs {
         // pattern breaks for coroutine tokens. Use async_initiate instead, which
         // works uniformly for yield_context and std::function completion tokens.
         return boost::asio::async_initiate<Token, void(boost::system::error_code, std::unique_ptr<node>)>(
-            [&ios, scb = std::move(scb), cfg](auto& handler) {
+            [&ios, scb = std::move(scb), cfg](auto handler) {
                 build_(ios, std::move(scb), cfg, nullptr, std::move(handler));
             }, token);
     }
@@ -153,7 +153,7 @@ namespace asio_ipfs {
                , Token&& token)
     {
         return boost::asio::async_initiate<Token, void(boost::system::error_code, std::unique_ptr<node>)>(
-            [&ios, scb = std::move(scb), cfg, &cancel](auto& handler) {
+            [&ios, scb = std::move(scb), cfg, &cancel](auto handler) {
                 build_(ios, std::move(scb), cfg, &cancel, std::move(handler));
             }, token);
     }
