@@ -4,7 +4,7 @@
 #include <memory>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/async_initiate.hpp>
+#include <boost/asio/async_result.hpp>  // declares boost::asio::async_initiate
 #include <boost/utility/string_view.hpp>
 #include "ipfs_config.h"
 
